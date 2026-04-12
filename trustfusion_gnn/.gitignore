@@ -1,0 +1,6 @@
+# system files
+.DS_Store
+Thumbs.db
+
+# md files
+ITERATION_*.md
