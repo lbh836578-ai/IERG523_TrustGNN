@@ -1,7 +1,7 @@
 # src/cloud_uploader.py
 """
-云端上传模块
-负责将数据上传到云端服务器
+Cloud upload module
+Responsible for uploading data to the cloud server
 """
 
 import logging
@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 class CloudUploader:
     """
-    云端数据上传器
+    Cloud data uploader
     
-    功能:
-    1. 批量上传传感器数据
-    2. 自动重试失败的上传
-    3. 断网时缓存数据
-    4. 后台异步上传
+    Features:
+    1. Batch upload sensor data
+    2. Auto-retry failed uploads
+    3. Cache data while offline
+    4. Asynchronous background upload
     """
     
     def __init__(
@@ -34,23 +34,23 @@ class CloudUploader:
         batch_size: int = 50
     ):
         """
-        初始化上传器
+        Initialize uploader
         
-        参数:
-            api_url: 云端API地址
-            api_key: API密钥
-            upload_interval: 上传间隔(秒)
-            batch_size: 批量上传大小
+        Args:
+            api_url: cloud API endpoint
+            api_key: API key
+            upload_interval: upload interval in seconds
+            batch_size: batch size per upload
         """
         self.api_url = api_url
         self.api_key = api_key
         self.upload_interval = upload_interval
         self.batch_size = batch_size
         
-        # 待上传数据队列
+        # Pending upload queue
         self.upload_queue: List[Dict[str, Any]] = []
         
-        # 统计信息
+        # Metrics
         self.stats = {
             "total_uploaded": 0,
             "total_failed": 0,
@@ -58,38 +58,38 @@ class CloudUploader:
             "last_error": None
         }
         
-        # 后台上传线程控制
+        # Background upload thread control
         self._stop_event = Event()
         self._upload_thread: Optional[Thread] = None
     
     def start(self):
-        """启动后台上传线程"""
+        """Start background upload thread"""
         self._stop_event.clear()
         self._upload_thread = Thread(target=self._upload_loop, daemon=True)
         self._upload_thread.start()
         logger.info("Cloud uploader started")
     
     def stop(self):
-        """停止后台上传线程"""
+        """Stop background upload thread"""
         self._stop_event.set()
         if self._upload_thread:
             self._upload_thread.join(timeout=5)
         logger.info("Cloud uploader stopped")
     
     def add_to_queue(self, data: Dict[str, Any]):
-        """添加数据到上传队列"""
+        """Add data to upload queue"""
         self.upload_queue.append(data)
         logger.debug(f"Data added to upload queue, queue size: {len(self.upload_queue)}")
     
     def _upload_loop(self):
-        """后台上传循环"""
+        """Background upload loop"""
         while not self._stop_event.is_set():
             try:
-                # 等待指定间隔
+                # Wait for configured interval
                 if self._stop_event.wait(self.upload_interval):
                     break
                 
-                # 检查是否有数据需要上传
+                # Check whether there is data to upload
                 if self.upload_queue:
                     self._do_upload()
                     
@@ -97,15 +97,15 @@ class CloudUploader:
                 logger.error(f"Error in upload loop: {e}")
     
     def _do_upload(self):
-        """执行上传操作"""
+        """Perform upload operation"""
         if not self.upload_queue:
             return
         
-        # 取出一批数据
+        # Take one batch of data
         batch = self.upload_queue[:self.batch_size]
         
         try:
-            # 构建请求
+            # Build request payload
             payload = {
                 "gateway_id": "raspberry_pi_gateway",
                 "timestamp": datetime.now().isoformat(),
@@ -118,7 +118,7 @@ class CloudUploader:
                 "X-API-Key": self.api_key
             }
             
-            # 发送请求
+            # Send request
             response = requests.post(
                 f"{self.api_url}/sensor-data/batch",
                 json=payload,
@@ -127,18 +127,18 @@ class CloudUploader:
             )
             
             if response.status_code == 200:
-                # 上传成功，从队列中移除
+                # Upload succeeded, remove batch from queue
                 self.upload_queue = self.upload_queue[len(batch):]
                 self.stats["total_uploaded"] += len(batch)
                 self.stats["last_upload_time"] = datetime.now().isoformat()
                 logger.info(f"Successfully uploaded {len(batch)} records")
                 
-                # 处理响应（可能包含服务器的分析结果）
+                # Process response (may contain server-side analysis)
                 result = response.json()
                 self._handle_response(result)
                 
             else:
-                # 上传失败
+                # Upload failed
                 self.stats["total_failed"] += len(batch)
                 self.stats["last_error"] = f"HTTP {response.status_code}"
                 logger.error(f"Upload failed: HTTP {response.status_code}")
@@ -156,20 +156,20 @@ class CloudUploader:
             self.stats["last_error"] = str(e)
     
     def _handle_response(self, result: Dict[str, Any]):
-        """处理云端返回的结果"""
-        # 检查是否有异常警报
+        """Handle cloud response"""
+        # Check anomaly alerts
         if "alerts" in result:
             for alert in result["alerts"]:
                 logger.warning(f"Cloud alert: {alert}")
         
-        # 检查是否有控制命令
+        # Check control commands
         if "commands" in result:
             for cmd in result["commands"]:
                 logger.info(f"Cloud command received: {cmd}")
-                # TODO: 执行控制命令
+                # TODO: execute control command
     
     def upload_now(self) -> bool:
-        """立即上传所有队列中的数据"""
+        """Upload all queued data immediately"""
         if not self.upload_queue:
             return True
         
@@ -178,7 +178,7 @@ class CloudUploader:
         while self.upload_queue:
             self._do_upload()
             
-            # 如果队列没有减少，说明上传失败
+            # If queue size does not shrink, upload failed
             if len(self.upload_queue) >= original_size:
                 return False
             
@@ -187,7 +187,7 @@ class CloudUploader:
         return True
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取上传统计信息"""
+        """Get upload metrics"""
         return {
             **self.stats,
             "queue_size": len(self.upload_queue)

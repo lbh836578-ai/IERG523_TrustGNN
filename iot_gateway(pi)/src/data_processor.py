@@ -1,7 +1,7 @@
 # src/data_processor.py
 """
-数据处理模块
-负责数据清洗、格式化和初步分析
+Data processing module
+Handles data cleaning, formatting, and preliminary analysis
 """
 
 import logging
@@ -15,41 +15,41 @@ logger = logging.getLogger(__name__)
 
 class SensorDataBuffer:
     """
-    传感器数据缓冲区
-    为每个传感器维护一个时间窗口的数据
+    Sensor data buffer
+    Maintains a time-window buffer for each sensor
     """
     
     def __init__(self, window_size: int = 20):
         """
-        初始化缓冲区
+        Initialize buffer
         
-        参数:
-            window_size: 时间窗口大小(保留最近N个数据点)
+        Args:
+            window_size: window size (keep latest N points)
         """
         self.window_size = window_size
         self.buffers: Dict[str, Dict[str, deque]] = {}
     
     def add_data(self, node_id: str, sensor_type: str, value: float):
-        """添加数据点"""
-        # 初始化节点缓冲区
+        """Add one data point"""
+        # Initialize node buffer
         if node_id not in self.buffers:
             self.buffers[node_id] = {}
         
-        # 初始化传感器缓冲区
+        # Initialize sensor buffer
         if sensor_type not in self.buffers[node_id]:
             self.buffers[node_id][sensor_type] = deque(maxlen=self.window_size)
         
-        # 添加数据
+        # Append data
         self.buffers[node_id][sensor_type].append(value)
     
     def get_history(self, node_id: str, sensor_type: str) -> List[float]:
-        """获取历史数据"""
+        """Get historical data"""
         if node_id in self.buffers and sensor_type in self.buffers[node_id]:
             return list(self.buffers[node_id][sensor_type])
         return []
     
     def get_statistics(self, node_id: str, sensor_type: str) -> Dict[str, float]:
-        """计算统计信息"""
+        """Compute statistics"""
         history = self.get_history(node_id, sensor_type)
         
         if len(history) < 2:
@@ -73,16 +73,16 @@ class SensorDataBuffer:
 
 class DataProcessor:
     """
-    数据处理器
+    Data processor
     
-    功能:
-    1. 数据验证和清洗
-    2. 单位转换和标准化
-    3. 计算数据质量分数
-    4. 格式化为云端所需格式
+    Features:
+    1. Data validation and cleaning
+    2. Unit conversion and normalization
+    3. Data-quality scoring
+    4. Formatting for cloud ingestion
     """
     
-    # 传感器有效范围定义
+    # Valid ranges per sensor type
     VALID_RANGES = {
         "temperature": {"min": -40, "max": 80, "unit": "celsius"},
         "humidity": {"min": 0, "max": 100, "unit": "percent"},
@@ -92,31 +92,31 @@ class DataProcessor:
     
     def __init__(self, window_size: int = 20):
         """
-        初始化数据处理器
+        Initialize data processor
         
-        参数:
-            window_size: 时间窗口大小
+        Args:
+            window_size: time-window size
         """
         self.buffer = SensorDataBuffer(window_size)
         self.processed_count = 0
     
     def process(self, raw_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        处理原始传感器数据
+        Process raw sensor data
         
-        参数:
-            raw_data: 从MQTT接收的原始数据
+        Args:
+            raw_data: raw data received from MQTT
             
-        返回:
-            处理后的数据字典，如果数据无效则返回None
+        Returns:
+            processed data dictionary, or None if invalid
         """
         try:
-            # 1. 提取基本信息
+            # 1. Extract basic fields
             node_id = raw_data.get("node_id", "unknown")
             timestamp = raw_data.get("timestamp", 0)
             device_quality = raw_data.get("quality", 1.0)
             
-            # 2. 处理每个传感器的数据
+            # 2. Process each sensor reading
             sensors_data = raw_data.get("sensors", {})
             processed_sensors = {}
             
@@ -129,12 +129,12 @@ class DataProcessor:
                 if processed:
                     processed_sensors[sensor_type] = processed
             
-            # 3. 如果没有有效数据，返回None
+            # 3. Return None if no valid data
             if not processed_sensors:
                 logger.warning(f"No valid sensor data from {node_id}")
                 return None
             
-            # 4. 构建输出
+            # 4. Build output
             result = {
                 "node_id": node_id,
                 "timestamp": datetime.now().isoformat(),
@@ -147,7 +147,7 @@ class DataProcessor:
                 }
             }
             
-            # 5. 添加设备状态信息
+            # 5. Add device-status info
             if "device_status" in raw_data:
                 result["device_status"] = raw_data["device_status"]
             
@@ -166,37 +166,37 @@ class DataProcessor:
         sensor_type: str, 
         sensor_info: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """处理单个传感器数据"""
+        """Process one sensor reading"""
         
-        # 检查数据有效性标志
+        # Check validity flag
         if not sensor_info.get("valid", True):
             return None
         
         value = sensor_info.get("value")
         
-        # 检查值是否存在
+        # Check whether value exists
         if value is None:
             return None
         
-        # 获取有效范围
+        # Get valid range
         valid_range = self.VALID_RANGES.get(sensor_type, {})
         min_val = valid_range.get("min", float("-inf"))
         max_val = valid_range.get("max", float("inf"))
         
-        # 1. 范围检查
+        # 1. Range check
         in_range = min_val <= value <= max_val
         
-        # 2. 添加到缓冲区
+        # 2. Add to buffer
         if in_range:
             self.buffer.add_data(node_id, sensor_type, value)
         
-        # 3. 获取统计信息
+        # 3. Get statistics
         stats = self.buffer.get_statistics(node_id, sensor_type)
         
-        # 4. 计算数据质量分数
+        # 4. Compute quality score
         quality = self._calculate_quality(value, stats, in_range)
         
-        # 5. 检测异常
+        # 5. Detect anomaly
         is_anomaly = self._detect_anomaly(value, stats)
         
         return {
@@ -215,20 +215,20 @@ class DataProcessor:
         in_range: bool
     ) -> float:
         """
-        计算数据质量分数
+        Compute data-quality score
         
-        质量分数基于:
-        1. 是否在有效范围内
-        2. 与历史均值的偏差
-        3. 数据的稳定性(标准差)
+        Quality score is based on:
+        1. Whether value is in valid range
+        2. Deviation from historical mean
+        3. Data stability (standard deviation)
         """
         quality = 1.0
         
-        # 1. 范围检查
+        # 1. Range check
         if not in_range:
             quality *= 0.3
         
-        # 2. 偏差检查
+        # 2. Deviation check
         if stats["count"] > 1 and stats["std"] > 0:
             z_score = abs(value - stats["mean"]) / stats["std"]
             
@@ -248,9 +248,9 @@ class DataProcessor:
         threshold: float = 3.0
     ) -> bool:
         """
-        检测异常值
+        Detect anomalies
         
-        使用Z-score方法: |值 - 均值| > threshold * 标准差
+        Z-score rule: |value - mean| > threshold * std
         """
         if stats["count"] < 5 or stats["std"] == 0:
             return False
@@ -260,13 +260,13 @@ class DataProcessor:
     
     def get_formatted_batch(self, data_list: List[Dict]) -> Dict[str, Any]:
         """
-        将多条数据格式化为云端批量上传格式
+        Format multiple records for cloud batch upload
         
-        参数:
-            data_list: 处理后的数据列表
+        Args:
+            data_list: list of processed records
             
-        返回:
-            云端API所需的批量数据格式
+        Returns:
+            batch payload format required by cloud API
         """
         return {
             "batch_id": datetime.now().strftime("%Y%m%d%H%M%S"),

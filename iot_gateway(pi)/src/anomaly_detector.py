@@ -1,7 +1,7 @@
 # src/anomaly_detector.py
 """
-异常检测模块
-在边缘端进行初步的异常检测
+Anomaly detection module
+Performs preliminary anomaly detection at the edge
 """
 
 import logging
@@ -14,25 +14,25 @@ logger = logging.getLogger(__name__)
 
 class AnomalyDetector:
     """
-    边缘端异常检测器
+    Edge-side anomaly detector
     
-    使用多种方法检测传感器异常:
-    1. 范围检测 - 值超出有效范围
-    2. 统计检测 - Z-score异常
-    3. 突变检测 - 短时间内剧烈变化
-    4. 一致性检测 - 与同类传感器比较
+    Uses multiple methods to detect sensor anomalies:
+    1. Range check - value outside valid range
+    2. Statistical check - Z-score anomaly
+    3. Spike check - abrupt short-term change
+    4. Consistency check - compare with same-type sensors
     """
     
     def __init__(self, config: Dict[str, Any] = None):
         """
-        初始化异常检测器
+        Initialize anomaly detector
         
-        参数:
-            config: 配置字典
+        Args:
+            config: configuration dictionary
         """
         self.config = config or {}
         
-        # 默认有效范围
+        # Default valid ranges
         self.valid_ranges = {
             "temperature": (-40, 80),
             "humidity": (0, 100),
@@ -40,17 +40,17 @@ class AnomalyDetector:
             "light": (0, 100000)
         }
         
-        # 历史数据缓冲
+        # Historical data buffer
         self.history: Dict[str, deque] = {}
         self.window_size = self.config.get("window_size", 20)
         
-        # Z-score阈值
+        # Z-score threshold
         self.z_threshold = self.config.get("z_threshold", 3.0)
         
-        # 突变阈值(相对于标准差的倍数)
+        # Spike threshold (multiple of standard deviation)
         self.spike_threshold = self.config.get("spike_threshold", 2.0)
         
-        # 异常计数(用于检测持续异常)
+        # Anomaly counter (for persistent anomaly detection)
         self.anomaly_counts: Dict[str, int] = {}
     
     def detect(
@@ -60,32 +60,32 @@ class AnomalyDetector:
         value: float
     ) -> Tuple[bool, List[str]]:
         """
-        检测单个数据点是否异常
+        Detect whether a single data point is anomalous
         
-        参数:
-            node_id: 节点ID
-            sensor_type: 传感器类型
-            value: 传感器值
+        Args:
+            node_id: node ID
+            sensor_type: sensor type
+            value: sensor value
             
-        返回:
-            (是否异常, 异常原因列表)
+        Returns:
+            (is_anomaly, anomaly_reason_list)
         """
         anomalies = []
         key = f"{node_id}_{sensor_type}"
         
-        # 1. 范围检测
+        # 1. Range check
         if sensor_type in self.valid_ranges:
             min_val, max_val = self.valid_ranges[sensor_type]
             if value < min_val or value > max_val:
                 anomalies.append(f"out_of_range: {value} not in [{min_val}, {max_val}]")
         
-        # 获取历史数据
+        # Get historical data
         if key not in self.history:
             self.history[key] = deque(maxlen=self.window_size)
         
         history = list(self.history[key])
         
-        # 2. 统计异常检测 (需要足够的历史数据)
+        # 2. Statistical anomaly detection (requires enough history)
         if len(history) >= 5:
             mean = np.mean(history)
             std = np.std(history)
@@ -95,18 +95,18 @@ class AnomalyDetector:
                 if z_score > self.z_threshold:
                     anomalies.append(f"statistical: z_score={z_score:.2f}")
         
-        # 3. 突变检测
+        # 3. Spike detection
         if len(history) >= 1:
             last_value = history[-1]
             change = abs(value - last_value)
             
-            # 计算允许的最大变化
+            # Compute allowed maximum change
             if len(history) >= 3:
                 typical_change = np.std(np.diff(history)) if len(history) > 1 else 0
                 if typical_change > 0 and change > self.spike_threshold * typical_change:
                     anomalies.append(f"spike: change={change:.2f}")
             else:
-                # 使用默认阈值
+                # Use default threshold
                 default_thresholds = {
                     "temperature": 5.0,
                     "humidity": 20.0,
@@ -117,10 +117,10 @@ class AnomalyDetector:
                 if change > threshold:
                     anomalies.append(f"spike: change={change:.2f}")
         
-        # 更新历史数据
+        # Update historical data
         self.history[key].append(value)
         
-        # 更新异常计数
+        # Update anomaly counter
         if anomalies:
             self.anomaly_counts[key] = self.anomaly_counts.get(key, 0) + 1
         else:
@@ -134,14 +134,14 @@ class AnomalyDetector:
         values: Dict[str, float]
     ) -> Dict[str, Tuple[bool, List[str]]]:
         """
-        跨传感器一致性检测
+        Cross-sensor consistency detection
         
-        参数:
-            sensor_type: 传感器类型
-            values: {node_id: value} 字典
+        Args:
+            sensor_type: sensor type
+            values: {node_id: value} dictionary
             
-        返回:
-            {node_id: (是否异常, 异常原因)} 字典
+        Returns:
+            {node_id: (is_anomaly, anomaly_reasons)} dictionary
         """
         if len(values) < 2:
             return {}
@@ -149,16 +149,16 @@ class AnomalyDetector:
         results = {}
         all_values = list(values.values())
         median = np.median(all_values)
-        mad = np.median([abs(v - median) for v in all_values])  # 中位数绝对偏差
+        mad = np.median([abs(v - median) for v in all_values])  # Median Absolute Deviation
         
         if mad == 0:
-            mad = np.std(all_values) / 1.4826  # 使用标准差估计
+            mad = np.std(all_values) / 1.4826  # Fallback estimate from std
         
         if mad == 0:
             return {}
         
         for node_id, value in values.items():
-            # 计算修正Z分数
+            # Compute modified Z-score
             modified_z = 0.6745 * (value - median) / mad
             
             if abs(modified_z) > self.z_threshold:
@@ -173,15 +173,15 @@ class AnomalyDetector:
     
     def is_sensor_faulty(self, node_id: str, sensor_type: str) -> bool:
         """
-        判断传感器是否可能故障
+        Determine whether a sensor is likely faulty
         
-        连续多次异常表示可能故障
+        Consecutive anomalies indicate possible fault
         """
         key = f"{node_id}_{sensor_type}"
         return self.anomaly_counts.get(key, 0) >= 5
     
     def get_health_status(self) -> Dict[str, Any]:
-        """获取所有传感器的健康状态"""
+        """Get health status for all sensors"""
         status = {}
         
         for key, count in self.anomaly_counts.items():

@@ -1,4 +1,4 @@
-# 使用mosquitto_pub模拟ESP32发送数据
+# Use mosquitto_pub to simulate ESP32 data publishing
 
 mosquitto_pub -t "farm/sensors" -m '{
   "node_id": "node_test",

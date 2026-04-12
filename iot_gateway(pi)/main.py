@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # main.py
 """
-TrustFusion-GNN 树莓派网关主程序
+TrustFusion-GNN Raspberry Pi gateway main program
 
-功能:
-1. 接收ESP32传感器节点的MQTT数据
-2. 数据处理和初步异常检测
-3. 本地存储
-4. 上传到云端
+Features:
+1. Receive MQTT data from ESP32 sensor nodes
+2. Data processing and preliminary anomaly detection
+3. Local storage
+4. Cloud upload
 """
 
 import os
@@ -20,7 +20,7 @@ from typing import Dict, Any
 
 import yaml
 
-# 添加src目录到路径
+# Add src directory to import path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from mqtt_handler import MQTTHandler
@@ -32,34 +32,34 @@ from anomaly_detector import AnomalyDetector
 
 class Gateway:
     """
-    IoT网关主类
+    IoT gateway main class
     
-    整合所有模块，协调数据流转
+    Integrates all modules and coordinates data flow
     """
     
     def __init__(self, config_path: str = "config/config.yaml"):
         """
-        初始化网关
+        Initialize gateway
         
-        参数:
-            config_path: 配置文件路径
+        Args:
+            config_path: config file path
         """
-        # 加载配置
+        # Load config
         self.config = self._load_config(config_path)
         
-        # 设置日志
+        # Configure logging
         self._setup_logging()
         
         self.logger = logging.getLogger(__name__)
         self.logger.info("Initializing IoT Gateway...")
         
-        # 初始化各模块
+        # Initialize modules
         self._init_modules()
         
-        # 运行状态
+        # Runtime state
         self.running = False
         
-        # 统计信息
+        # Metrics
         self.stats = {
             "start_time": None,
             "messages_received": 0,
@@ -68,7 +68,7 @@ class Gateway:
         }
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """加载配置文件"""
+        """Load config file"""
         config_file = Path(config_path)
         
         if not config_file.exists():
@@ -80,7 +80,7 @@ class Gateway:
             return yaml.safe_load(f)
     
     def _create_default_config(self, config_path: str):
-        """创建默认配置文件"""
+        """Create default config file"""
         Path(config_path).parent.mkdir(parents=True, exist_ok=True)
         
         default_config = {
@@ -119,15 +119,15 @@ class Gateway:
             yaml.dump(default_config, f, default_flow_style=False)
     
     def _setup_logging(self):
-        """设置日志系统"""
+        """Set up logging"""
         log_config = self.config.get("logging", {})
         log_level = getattr(logging, log_config.get("level", "INFO"))
         log_file = log_config.get("file", "logs/gateway.log")
         
-        # 确保日志目录存在
+        # Ensure log directory exists
         Path(log_file).parent.mkdir(parents=True, exist_ok=True)
         
-        # 配置日志
+        # Configure logging handlers
         logging.basicConfig(
             level=log_level,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -138,13 +138,13 @@ class Gateway:
         )
     
     def _init_modules(self):
-        """初始化各功能模块"""
+        """Initialize functional modules"""
         mqtt_config = self.config.get("mqtt", {})
         cloud_config = self.config.get("cloud", {})
         storage_config = self.config.get("storage", {})
         processing_config = self.config.get("processing", {})
         
-        # MQTT处理器
+        # MQTT handler
         self.mqtt_handler = MQTTHandler(
             broker=mqtt_config.get("broker", "localhost"),
             port=mqtt_config.get("port", 1883),
@@ -152,21 +152,21 @@ class Gateway:
             password=mqtt_config.get("password", "")
         )
         
-        # 数据处理器
+        # Data processor
         self.data_processor = DataProcessor(
             window_size=processing_config.get("window_size", 20)
         )
         
-        # 本地存储
+        # Local storage
         self.local_storage = LocalStorage(
             db_path=storage_config.get("database_path", "data/sensor_data.db"),
             max_records=storage_config.get("max_records", 100000)
         )
         
-        # 异常检测器
+        # Anomaly detector
         self.anomaly_detector = AnomalyDetector(processing_config)
         
-        # 云端上传器
+        # Cloud uploader
         if cloud_config.get("enabled", False):
             self.cloud_uploader = CloudUploader(
                 api_url=cloud_config.get("api_url", ""),
@@ -181,26 +181,26 @@ class Gateway:
     
     def _on_sensor_data(self, raw_data: Dict[str, Any]):
         """
-        传感器数据回调函数
-        
-        数据流:
-        1. 接收原始数据
-        2. 数据处理
-        3. 异常检测
-        4. 本地存储
-        5. 加入云端上传队列
+        Sensor-data callback.
+
+        Data flow:
+        1. Receive raw data
+        2. Process data
+        3. Detect anomalies
+        4. Store locally
+        5. Enqueue for cloud upload
         """
         self.stats["messages_received"] += 1
         
         try:
-            # 1. 数据处理
+            # 1. Process data
             processed_data = self.data_processor.process(raw_data)
             
             if processed_data is None:
                 self.logger.warning("Data processing failed, skipping")
                 return
             
-            # 2. 异常检测
+            # 2. Detect anomalies
             node_id = processed_data.get("node_id", "unknown")
             sensors = processed_data.get("sensors", {})
             
@@ -221,10 +221,10 @@ class Gateway:
                             f"reasons: {reasons}"
                         )
             
-            # 3. 本地存储
+            # 3. Store locally
             self.local_storage.save_sensor_data(processed_data)
             
-            # 4. 加入云端上传队列
+            # 4. Add to cloud-upload queue
             if self.cloud_uploader:
                 self.cloud_uploader.add_to_queue(processed_data)
             
@@ -235,24 +235,24 @@ class Gateway:
             self.logger.error(f"Error handling sensor data: {e}")
     
     def start(self):
-        """启动网关"""
+        """Start gateway"""
         self.logger.info("Starting IoT Gateway...")
         self.running = True
         self.stats["start_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
         
-        # 设置MQTT回调
+        # Register MQTT callback
         self.mqtt_handler.set_data_callback(self._on_sensor_data)
         
-        # 连接MQTT
+        # Connect MQTT
         if not self.mqtt_handler.connect():
             self.logger.error("Failed to connect to MQTT broker")
             return False
         
-        # 订阅主题
+        # Subscribe topics
         mqtt_topics = self.config.get("mqtt", {}).get("topics", {})
         self.mqtt_handler.subscribe(mqtt_topics.get("sensor_data", "farm/sensors"))
         
-        # 启动云端上传器
+        # Start cloud uploader
         if self.cloud_uploader:
             self.cloud_uploader.start()
         
@@ -260,21 +260,21 @@ class Gateway:
         return True
     
     def stop(self):
-        """停止网关"""
+        """Stop gateway"""
         self.logger.info("Stopping IoT Gateway...")
         self.running = False
         
-        # 断开MQTT
+        # Disconnect MQTT
         self.mqtt_handler.disconnect()
         
-        # 停止云端上传器
+        # Stop cloud uploader
         if self.cloud_uploader:
             self.cloud_uploader.stop()
         
         self.logger.info("IoT Gateway stopped")
     
     def get_status(self) -> Dict[str, Any]:
-        """获取网关状态"""
+        """Get gateway status"""
         return {
             "running": self.running,
             "stats": self.stats,
@@ -285,11 +285,11 @@ class Gateway:
         }
     
     def run_forever(self):
-        """运行直到收到停止信号"""
+        """Run until stop signal is received"""
         if not self.start():
             return
         
-        # 设置信号处理
+        # Set signal handlers
         def signal_handler(signum, frame):
             self.logger.info("Received stop signal")
             self.stop()
@@ -297,12 +297,12 @@ class Gateway:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        # 主循环
+        # Main loop
         while self.running:
             try:
                 time.sleep(1)
                 
-                # 定期打印状态
+                # Periodically print status
                 if int(time.time()) % 60 == 0:
                     status = self.get_status()
                     self.logger.info(
@@ -316,13 +316,13 @@ class Gateway:
 
 
 def main():
-    """主入口函数"""
+    """Main entry function"""
     print("=" * 60)
     print("  TrustFusion-GNN IoT Gateway")
     print("  Version: 1.0.0")
     print("=" * 60)
     
-    # 创建并运行网关
+    # Create and run gateway
     gateway = Gateway()
     gateway.run_forever()
 

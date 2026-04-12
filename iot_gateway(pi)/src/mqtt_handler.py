@@ -1,7 +1,7 @@
 # src/mqtt_handler.py
 """
-MQTT处理模块
-负责与ESP32传感器节点的MQTT通信
+MQTT handling module
+Responsible for MQTT communication with ESP32 sensor nodes
 """
 
 import json
@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 
 class MQTTHandler:
     """
-    MQTT客户端处理器
+    MQTT client handler
     
-    功能:
-    1. 连接MQTT Broker
-    2. 订阅传感器数据主题
-    3. 解析接收到的JSON数据
-    4. 调用回调函数处理数据
+    Features:
+    1. Connect to MQTT broker
+    2. Subscribe to sensor-data topics
+    3. Parse received JSON payloads
+    4. Invoke callback for downstream handling
     """
     
     def __init__(
@@ -32,41 +32,41 @@ class MQTTHandler:
         password: str = ""
     ):
         """
-        初始化MQTT处理器
+        Initialize MQTT handler
         
-        参数:
-            broker: MQTT服务器地址
-            port: MQTT端口
-            username: 用户名(可选)
-            password: 密码(可选)
+        Args:
+            broker: MQTT broker address
+            port: MQTT port
+            username: username (optional)
+            password: password (optional)
         """
         self.broker = broker
         self.port = port
         self.username = username
         self.password = password
         
-        # 创建MQTT客户端
+        # Create MQTT client
         self.client = mqtt.Client(client_id="raspberry_gateway")
         
-        # 设置回调函数
+        # Register callbacks
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
         
-        # 设置认证(如果有)
+        # Set auth (if provided)
         if username and password:
             self.client.username_pw_set(username, password)
         
-        # 数据回调函数(外部设置)
+        # Data callback (set externally)
         self.data_callback: Optional[Callable] = None
         
-        # 订阅的主题列表
+        # Subscribed topic list
         self.topics: list = []
         
-        # 连接状态
+        # Connection status
         self.connected = False
         
-        # 统计信息
+        # Metrics
         self.stats = {
             "messages_received": 0,
             "messages_processed": 0,
@@ -75,32 +75,32 @@ class MQTTHandler:
         }
     
     def connect(self) -> bool:
-        """连接到MQTT Broker"""
+        """Connect to MQTT broker"""
         try:
             logger.info(f"Connecting to MQTT broker at {self.broker}:{self.port}")
             self.client.connect(self.broker, self.port, keepalive=60)
-            self.client.loop_start()  # 启动后台线程处理网络
+            self.client.loop_start()  # start background network loop
             return True
         except Exception as e:
             logger.error(f"Failed to connect to MQTT broker: {e}")
             return False
     
     def disconnect(self):
-        """断开MQTT连接"""
+        """Disconnect MQTT"""
         self.client.loop_stop()
         self.client.disconnect()
         self.connected = False
         logger.info("Disconnected from MQTT broker")
     
     def subscribe(self, topic: str):
-        """订阅主题"""
+        """Subscribe a topic"""
         self.topics.append(topic)
         if self.connected:
             self.client.subscribe(topic)
             logger.info(f"Subscribed to topic: {topic}")
     
     def publish(self, topic: str, message: Dict[str, Any]):
-        """发布消息"""
+        """Publish message"""
         try:
             payload = json.dumps(message)
             self.client.publish(topic, payload)
@@ -109,16 +109,16 @@ class MQTTHandler:
             logger.error(f"Failed to publish message: {e}")
     
     def set_data_callback(self, callback: Callable):
-        """设置数据处理回调函数"""
+        """Set data-processing callback"""
         self.data_callback = callback
     
     def _on_connect(self, client, userdata, flags, rc):
-        """连接回调"""
+        """Connect callback"""
         if rc == 0:
             self.connected = True
             logger.info("Connected to MQTT broker successfully")
             
-            # 重新订阅所有主题
+            # Re-subscribe all topics
             for topic in self.topics:
                 client.subscribe(topic)
                 logger.info(f"Subscribed to topic: {topic}")
@@ -126,32 +126,32 @@ class MQTTHandler:
             logger.error(f"Failed to connect, return code: {rc}")
     
     def _on_disconnect(self, client, userdata, rc):
-        """断开连接回调"""
+        """Disconnect callback"""
         self.connected = False
         logger.warning(f"Disconnected from MQTT broker, rc: {rc}")
         
-        # 尝试重连
+        # Try reconnecting
         if rc != 0:
             logger.info("Attempting to reconnect...")
     
     def _on_message(self, client, userdata, msg):
-        """消息接收回调"""
+        """Message callback"""
         try:
             self.stats["messages_received"] += 1
             self.stats["last_message_time"] = datetime.now()
             
-            # 解析JSON
+            # Parse JSON
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             data = json.loads(payload)
             
             logger.debug(f"Received message on {topic}")
             
-            # 添加接收时间戳
+            # Add gateway receive timestamp
             data["gateway_timestamp"] = datetime.now().isoformat()
             data["topic"] = topic
             
-            # 调用处理回调
+            # Call processing callback
             if self.data_callback:
                 self.data_callback(data)
                 self.stats["messages_processed"] += 1
@@ -164,5 +164,5 @@ class MQTTHandler:
             self.stats["errors"] += 1
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取统计信息"""
+        """Get statistics"""
         return self.stats.copy()

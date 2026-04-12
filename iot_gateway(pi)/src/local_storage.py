@@ -1,7 +1,7 @@
 # src/local_storage.py
 """
-本地存储模块
-使用SQLite数据库存储传感器数据
+Local storage module
+Uses SQLite to store sensor data
 """
 
 import sqlite3
@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 class LocalStorage:
     """
-    本地SQLite存储
+    Local SQLite storage
     
-    功能:
-    1. 存储所有接收到的传感器数据
-    2. 支持按时间和节点查询
-    3. 自动清理过期数据
-    4. 断网时缓存未上传的数据
+    Features:
+    1. Store all received sensor data
+    2. Query by time and node
+    3. Automatically clean up stale data
+    4. Cache not-yet-uploaded data when offline
     """
     
     def __init__(
@@ -31,27 +31,27 @@ class LocalStorage:
         max_records: int = 100000
     ):
         """
-        初始化存储
+        Initialize storage
         
-        参数:
-            db_path: 数据库文件路径
-            max_records: 最大记录数
+        Args:
+            db_path: database file path
+            max_records: maximum record count
         """
         self.db_path = db_path
         self.max_records = max_records
         
-        # 确保目录存在
+        # Ensure directory exists
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         
-        # 初始化数据库
+        # Initialize database
         self._init_database()
     
     def _init_database(self):
-        """初始化数据库表结构"""
+        """Initialize database schema"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # 创建传感器数据表
+        # Create sensor data table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sensor_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +67,7 @@ class LocalStorage:
             )
         """)
         
-        # 创建索引
+        # Create indexes
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_node_timestamp 
             ON sensor_data(node_id, timestamp)
@@ -78,7 +78,7 @@ class LocalStorage:
             ON sensor_data(uploaded)
         """)
         
-        # 创建系统日志表
+        # Create system log table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,13 +95,13 @@ class LocalStorage:
     
     def save_sensor_data(self, data: Dict[str, Any]) -> bool:
         """
-        保存传感器数据
+        Save sensor data
         
-        参数:
-            data: 处理后的传感器数据
+        Args:
+            data: processed sensor data
             
-        返回:
-            是否保存成功
+        Returns:
+            whether save succeeded
         """
         try:
             conn = sqlite3.connect(self.db_path)
@@ -110,7 +110,7 @@ class LocalStorage:
             node_id = data.get("node_id", "unknown")
             timestamp = data.get("timestamp", datetime.now().isoformat())
             
-            # 保存每个传感器的数据
+            # Save each sensor reading
             sensors = data.get("sensors", {})
             for sensor_type, sensor_info in sensors.items():
                 cursor.execute("""
@@ -131,7 +131,7 @@ class LocalStorage:
             conn.commit()
             conn.close()
             
-            # 检查是否需要清理旧数据
+            # Check whether cleanup is needed
             self._cleanup_if_needed()
             
             return True
@@ -142,13 +142,13 @@ class LocalStorage:
     
     def get_unuploaded_data(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
-        获取未上传的数据
+        Get data not uploaded yet
         
-        参数:
-            limit: 最大返回记录数
+        Args:
+            limit: maximum number of returned records
             
-        返回:
-            未上传的数据列表
+        Returns:
+            list of unuploaded records
         """
         try:
             conn = sqlite3.connect(self.db_path)
@@ -166,7 +166,7 @@ class LocalStorage:
             rows = cursor.fetchall()
             conn.close()
             
-            # 按时间戳分组数据
+            # Group rows by timestamp
             data_dict = {}
             for row in rows:
                 id_, node_id, timestamp, sensor_type, value, quality, is_anomaly = row
@@ -194,7 +194,7 @@ class LocalStorage:
             return []
     
     def mark_as_uploaded(self, record_ids: List[int]):
-        """标记数据为已上传"""
+        """Mark records as uploaded"""
         if not record_ids:
             return
         
@@ -224,12 +224,12 @@ class LocalStorage:
         hours: int = 24
     ) -> List[Dict[str, Any]]:
         """
-        获取最近的数据
+        Get recent data
         
-        参数:
-            node_id: 节点ID(可选)
-            sensor_type: 传感器类型(可选)
-            hours: 时间范围(小时)
+        Args:
+            node_id: node ID (optional)
+            sensor_type: sensor type (optional)
+            hours: time range in hours
         """
         try:
             conn = sqlite3.connect(self.db_path)
@@ -274,17 +274,17 @@ class LocalStorage:
             return []
     
     def _cleanup_if_needed(self):
-        """清理过期数据"""
+        """Clean stale data"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 获取当前记录数
+            # Get current record count
             cursor.execute("SELECT COUNT(*) FROM sensor_data")
             count = cursor.fetchone()[0]
             
             if count > self.max_records:
-                # 删除最老的已上传数据
+                # Delete oldest uploaded rows
                 delete_count = count - self.max_records + 1000
                 cursor.execute("""
                     DELETE FROM sensor_data
@@ -305,20 +305,20 @@ class LocalStorage:
             logger.error(f"Failed to cleanup database: {e}")
     
     def get_statistics(self) -> Dict[str, Any]:
-        """获取数据库统计信息"""
+        """Get database statistics"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 总记录数
+            # Total records
             cursor.execute("SELECT COUNT(*) FROM sensor_data")
             total = cursor.fetchone()[0]
             
-            # 未上传数
+            # Unuploaded records
             cursor.execute("SELECT COUNT(*) FROM sensor_data WHERE uploaded = 0")
             unuploaded = cursor.fetchone()[0]
             
-            # 各节点记录数
+            # Record counts by node
             cursor.execute("""
                 SELECT node_id, COUNT(*) 
                 FROM sensor_data 
