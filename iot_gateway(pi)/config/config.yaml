@@ -1,0 +1,38 @@
+# config/config.yaml
+# 树莓派网关配置文件
+
+# MQTT配置
+mqtt:
+  broker: "localhost"         # MQTT服务器地址
+  port: 1883                  # MQTT端口
+  username: ""                # 用户名(如果有)
+  password: ""                # 密码(如果有)
+  topics:
+    sensor_data: "farm/sensors"
+    control: "farm/control/#"
+    status: "farm/status/#"
+
+# 云端配置
+cloud:
+  enabled: true
+  api_url: "http://your-cloud-server.com/api"   # 云端API地址
+  api_key: "your-api-key"                        # API密钥
+  upload_interval: 30                            # 上传间隔(秒)
+
+# 数据处理配置
+processing:
+  window_size: 20             # 时间窗口大小(数据点数量)
+  anomaly_threshold: 3.0      # 异常检测阈值(标准差倍数)
+
+# 本地存储配置
+storage:
+  database_path: "data/sensor_data.db"
+  max_records: 100000         # 最大记录数(超过后删除旧数据)
+  backup_interval: 3600       # 备份间隔(秒)
+
+# 日志配置
+logging:
+  level: "INFO"               # 日志级别: DEBUG, INFO, WARNING, ERROR
+  file: "logs/gateway.log"
+  max_size: 10485760          # 最大日志文件大小(10MB)
+  backup_count: 5             # 保留的日志文件数量
