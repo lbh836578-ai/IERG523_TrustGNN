@@ -216,6 +216,12 @@ def run_training():
     print(f"  MAE: {metrics.mae:.4f}")
     print(f"  RMSE: {metrics.rmse:.4f}")
     print(f"  MAPE: {metrics.mape:.2f}%")
+    print("  Per-channel MAE:")
+    for channel, value in metrics.per_channel_mae.items():
+        print(f"    {channel}: {value:.4f}")
+    print("  Per-channel RMSE:")
+    for channel, value in metrics.per_channel_rmse.items():
+        print(f"    {channel}: {value:.4f}")
     
     print(f"\nAnomaly Detection:")
     print(f"  AUC: {metrics.anomaly_auc:.4f}")

@@ -52,6 +52,8 @@ def metrics_to_dict(metrics: MetricsResult):
         "mae": metrics.mae,
         "rmse": metrics.rmse,
         "mape": metrics.mape,
+        "per_channel_mae": metrics.per_channel_mae,
+        "per_channel_rmse": metrics.per_channel_rmse,
         "improvement_vs_mean": metrics.improvement_vs_mean,
         "improvement_vs_median": metrics.improvement_vs_median,
         "anomaly_auc": metrics.anomaly_auc,
@@ -106,6 +108,9 @@ def main() -> None:
 
     trainer.train(train_loader, val_loader, num_epochs=args.epochs, patience=args.patience)
     val_losses, metrics = trainer.evaluate(val_loader)
+
+    print("Validation metrics:")
+    print(json.dumps(metrics_to_dict(metrics), indent=2))
 
     summary = {
         "run_name": run_name,

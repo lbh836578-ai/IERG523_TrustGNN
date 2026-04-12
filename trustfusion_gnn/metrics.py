@@ -8,6 +8,9 @@ from typing import Dict, List, Tuple
 from dataclasses import dataclass
 
 
+OUTPUT_CHANNELS = ["temperature", "humidity", "soil_moisture", "light"]
+
+
 @dataclass
 class MetricsResult:
     """Evaluation metric results"""
@@ -15,6 +18,8 @@ class MetricsResult:
     mae: float
     rmse: float
     mape: float
+    per_channel_mae: Dict[str, float]
+    per_channel_rmse: Dict[str, float]
     
     # Baseline comparison
     improvement_vs_mean: float
@@ -88,6 +93,8 @@ class MetricsCalculator:
         mae = self._mae(y_hat, y_true)
         rmse = self._rmse(y_hat, y_true)
         mape = self._mape(y_hat, y_true)
+        per_channel_mae = self._per_channel_metric(y_hat, y_true, self._mae)
+        per_channel_rmse = self._per_channel_metric(y_hat, y_true, self._rmse)
         
         # ========== Baseline Comparison ==========
         if self.raw_inputs:
@@ -142,6 +149,8 @@ class MetricsCalculator:
             mae=mae,
             rmse=rmse,
             mape=mape,
+            per_channel_mae=per_channel_mae,
+            per_channel_rmse=per_channel_rmse,
             improvement_vs_mean=improvement_vs_mean,
             improvement_vs_median=improvement_vs_median,
             anomaly_auc=anomaly_auc,
@@ -164,6 +173,23 @@ class MetricsCalculator:
             return 0.0
         mape = ((pred[mask] - target[mask]).abs() / target[mask].abs()).mean()
         return mape.item() * 100
+
+    def _per_channel_metric(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        metric_fn,
+    ) -> Dict[str, float]:
+        """Compute one metric independently for each output channel."""
+        num_channels = pred.shape[-1]
+        channel_names = OUTPUT_CHANNELS[:num_channels]
+        if len(channel_names) < num_channels:
+            channel_names.extend([f"channel_{idx}" for idx in range(len(channel_names), num_channels)])
+
+        channel_metrics: Dict[str, float] = {}
+        for idx, name in enumerate(channel_names):
+            channel_metrics[name] = metric_fn(pred[..., idx], target[..., idx])
+        return channel_metrics
     
     def _precision_recall_f1(
         self,
