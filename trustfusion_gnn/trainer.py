@@ -1,6 +1,8 @@
 """
 Trainer
 """
+import json
+import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,6 +12,8 @@ import numpy as np
 from tqdm import tqdm
 import time
 import copy
+from datetime import datetime
+from pathlib import Path
 
 from config import SystemConfig
 from models.trustfusion_gnn import TrustFusionGNN
@@ -27,11 +31,18 @@ class Trainer:
         self,
         model: TrustFusionGNN,
         config: SystemConfig,
-        device: str = None
+        device: str = None,
+        enable_logging: bool = False,
+        log_dir: Optional[str] = None,
+        run_name: Optional[str] = None,
     ):
         self.model = model
         self.config = config
         self.device = device or config.device
+        self.enable_logging = enable_logging
+        self.log_dir = Path(log_dir) if log_dir is not None else None
+        self.run_name = run_name or datetime.now().strftime("train_%Y%m%d_%H%M%S")
+        self.logger = self._build_logger() if enable_logging else None
         
         self.model.to(self.device)
         
@@ -74,6 +85,58 @@ class Trainer:
             'val_mae': [],
             'val_f1': []
         }
+        self.best_val_loss = None
+
+        self._log_event(
+            "Trainer initialized",
+            extra={
+                "device": self.device,
+                "run_name": self.run_name,
+                "num_sensors": self.config.num_sensors,
+                "window_size": self.config.window_size,
+            },
+        )
+
+    def _build_logger(self) -> logging.Logger:
+        """Create a dedicated file logger for one training run."""
+        log_dir = self.log_dir or Path("training_logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger = logging.getLogger(f"Trainer.{self.run_name}")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        logger.handlers.clear()
+
+        log_file = log_dir / f"{self.run_name}.log"
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        )
+        logger.addHandler(file_handler)
+        return logger
+
+    def _log_event(self, message: str, extra: Optional[Dict[str, object]] = None):
+        """Write one structured training log entry when logging is enabled."""
+        if self.logger is None:
+            return
+        if extra:
+            payload = json.dumps(extra, ensure_ascii=True, sort_keys=True)
+            self.logger.info("%s | %s", message, payload)
+        else:
+            self.logger.info(message)
+
+    def _persist_history(self):
+        """Persist training history to JSON when logging is enabled."""
+        if self.logger is None:
+            return
+        history_dir = self.log_dir or Path("training_logs")
+        history_dir.mkdir(parents=True, exist_ok=True)
+        history_path = history_dir / f"{self.run_name}_history.json"
+        payload = {
+            "run_name": self.run_name,
+            "best_val_loss": self.best_val_loss,
+            "history": self.history,
+        }
+        history_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         """Train one epoch"""
@@ -222,6 +285,10 @@ class Trainer:
         print(f"\nStart training (total {num_epochs} epochs, early-stop patience={patience})")
         print(f"Device: {self.device}")
         print("-" * 60)
+        self._log_event(
+            "Training started",
+            extra={"num_epochs": num_epochs, "patience": patience},
+        )
         
         for epoch in range(num_epochs):
             start_time = time.time()
@@ -250,23 +317,49 @@ class Trainer:
                   f"MAE: {metrics.mae:.4f} | "
                   f"F1: {metrics.anomaly_f1:.4f} | "
                   f"Time: {epoch_time:.1f}s")
+            self._log_event(
+                "Epoch completed",
+                extra={
+                    "epoch": epoch + 1,
+                    "train_loss": train_losses['total'],
+                    "val_loss": val_losses['total'],
+                    "mae": metrics.mae,
+                    "f1": metrics.anomaly_f1,
+                    "epoch_time_sec": epoch_time,
+                },
+            )
             
             # Early-stop check
             if val_losses['total'] < best_val_loss:
                 best_val_loss = val_losses['total']
+                self.best_val_loss = best_val_loss
                 patience_counter = 0
                 best_model_state = copy.deepcopy(self.model.state_dict())
                 print(f"  ✓ New best model!")
+                self._log_event(
+                    "New best model",
+                    extra={"epoch": epoch + 1, "best_val_loss": best_val_loss},
+                )
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
                     print(f"\nEarly stopping triggered: no improvement for {patience} epochs.")
+                    self._log_event(
+                        "Early stopping triggered",
+                        extra={"epoch": epoch + 1, "patience": patience},
+                    )
                     break
         
         # Restore best model
         if best_model_state is not None:
             self.model.load_state_dict(best_model_state)
             print(f"\nRestored best model (val_loss={best_val_loss:.4f})")
+            self._log_event(
+                "Best model restored",
+                extra={"best_val_loss": best_val_loss},
+            )
+
+        self._persist_history()
         
         return self.history
     
@@ -279,6 +372,7 @@ class Trainer:
             'history': self.history
         }, path)
         print(f"Model saved to {path}")
+        self._log_event("Model saved", extra={"path": path})
     
     def load_model(self, path: str):
         """Load model"""
@@ -287,3 +381,4 @@ class Trainer:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint['history']
         print(f"Model loaded from {path}")
+        self._log_event("Model loaded", extra={"path": path})
