@@ -1,5 +1,5 @@
 """
-训练器
+Trainer
 """
 import torch
 import torch.nn as nn
@@ -21,7 +21,7 @@ from normalization import DataNormalizer
 
 
 class Trainer:
-    """模型训练器"""
+    """Model trainer"""
     
     def __init__(
         self,
@@ -35,11 +35,11 @@ class Trainer:
         
         self.model.to(self.device)
         
-        # 构建图
+        # Build graph
         self.graph_builder = GraphBuilder(config)
         self.adj = self.graph_builder.get_combined_adjacency().to(self.device)
         
-        # 损失函数
+        # Loss function
         self.criterion = TrustFusionLoss(
             lambda_fusion=config.lambda_fusion,
             lambda_consistency=config.lambda_consistency,
@@ -47,27 +47,27 @@ class Trainer:
             lambda_anomaly=0.6
         )
         
-        # 优化器
+        # Optimizer
         self.optimizer = optim.AdamW(
             model.parameters(),
             lr=config.learning_rate,
             weight_decay=config.weight_decay
         )
         
-        # 学习率调度器
+        # Learning-rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode='min', factor=0.5, patience=5
         )
         
-        # 指标计算器
+        # Metrics calculator
         self.metrics_calculator = MetricsCalculator(
             anomaly_threshold=config.anomaly_threshold
         )
 
-        # 数据归一化
+        # Data normalization
         self.normalizer = DataNormalizer(config)
         
-        # 训练历史
+        # Training history
         self.history = {
             'train_loss': [],
             'val_loss': [],
@@ -76,7 +76,7 @@ class Trainer:
         }
         
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
-        """训练一个 epoch"""
+        """Train one epoch"""
         self.model.train()
         
         total_losses = {}
@@ -87,7 +87,7 @@ class Trainer:
         for batch in pbar:
             X, fusion_target, fault_mask, credibility_target = batch
             
-            # 移动到设备
+            # Move tensors to device
             X = X.to(self.device)
             fusion_target = fusion_target.to(self.device)
             fault_mask = fault_mask.to(self.device)
@@ -96,41 +96,41 @@ class Trainer:
             X_norm = self.normalizer.normalize_input(X)
             fusion_target_norm = self.normalizer.normalize_output(fusion_target)
             
-            # 前向传播
+            # Forward pass
             output = self.model(X_norm, self.adj)
             
-            # 构造 GroundTruth 对象
+            # Build GroundTruth object
             gt = GroundTruth(
-                clean_data=X,  # 简化：用输入代替
+                clean_data=X,  # simplified: use input as clean_data
                 fusion_target=fusion_target_norm,
                 fault_mask=fault_mask,
-                fault_types=fault_mask,  # 简化
+                fault_types=fault_mask,  # simplified
                 credibility_target=credibility_target
             )
             
-            # 计算损失
+            # Compute loss
             loss, losses_dict = self.criterion(output, gt, X_norm)
             
-            # 反向传播
+            # Backpropagation
             self.optimizer.zero_grad()
             loss.backward()
             
-            # 梯度裁剪
+            # Gradient clipping
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
             self.optimizer.step()
             
-            # 累积损失
+            # Accumulate losses
             for key, value in losses_dict.items():
                 if key not in total_losses:
                     total_losses[key] = 0.0
                 total_losses[key] += value
             num_batches += 1
             
-            # 更新进度条
+            # Update progress bar
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
         
-        # 平均损失
+        # Average losses
         avg_losses = {k: v / num_batches for k, v in total_losses.items()}
         
         return avg_losses
@@ -139,7 +139,7 @@ class Trainer:
         self, 
         val_loader: DataLoader
     ) -> Tuple[Dict[str, float], MetricsResult]:
-        """评估模型"""
+        """Evaluate model"""
         self.model.eval()
         self.metrics_calculator.reset()
         
@@ -158,10 +158,10 @@ class Trainer:
                 X_norm = self.normalizer.normalize_input(X)
                 fusion_target_norm = self.normalizer.normalize_output(fusion_target)
                 
-                # 前向传播
+                # Forward pass
                 output = self.model(X_norm, self.adj)
                 
-                # 构造 GroundTruth
+                # Build GroundTruth
                 gt = GroundTruth(
                     clean_data=X_norm,
                     fusion_target=fusion_target_norm,
@@ -170,19 +170,19 @@ class Trainer:
                     credibility_target=credibility_target
                 )
                 
-                # 计算损失
+                # Compute loss
                 loss, losses_dict = self.criterion(output, gt, X_norm)
 
                 y_hat_denorm = self.normalizer.denormalize_output(output.Y_hat)
                 
-                # 累积损失
+                # Accumulate losses
                 for key, value in losses_dict.items():
                     if key not in total_losses:
                         total_losses[key] = 0.0
                     total_losses[key] += value
                 num_batches += 1
                 
-                # 更新指标
+                # Update metrics
                 self.metrics_calculator.update(
                     y_hat=y_hat_denorm,
                     y_true=fusion_target,
@@ -194,10 +194,10 @@ class Trainer:
                     raw_input=None
                 )
         
-        # 平均损失
+        # Average losses
         avg_losses = {k: v / num_batches for k, v in total_losses.items()}
         
-        # 计算指标
+        # Compute metrics
         metrics = self.metrics_calculator.compute()
         
         return avg_losses, metrics
@@ -209,7 +209,7 @@ class Trainer:
         num_epochs: int = None,
         patience: int = None
     ) -> Dict:
-        """完整训练流程"""
+        """Full training workflow"""
         if num_epochs is None:
             num_epochs = self.config.num_epochs
         if patience is None:
@@ -219,23 +219,23 @@ class Trainer:
         patience_counter = 0
         best_model_state = None
         
-        print(f"\n开始训练 (共 {num_epochs} epochs, 早停 patience={patience})")
-        print(f"设备: {self.device}")
+        print(f"\nStart training (total {num_epochs} epochs, early-stop patience={patience})")
+        print(f"Device: {self.device}")
         print("-" * 60)
         
         for epoch in range(num_epochs):
             start_time = time.time()
             
-            # 训练
+            # Train
             train_losses = self.train_epoch(train_loader)
             
-            # 验证
+            # Validate
             val_losses, metrics = self.evaluate(val_loader)
             
-            # 学习率调度
+            # Learning-rate scheduling
             self.scheduler.step(val_losses['total'])
             
-            # 记录历史
+            # Record history
             self.history['train_loss'].append(train_losses['total'])
             self.history['val_loss'].append(val_losses['total'])
             self.history['val_mae'].append(metrics.mae)
@@ -243,7 +243,7 @@ class Trainer:
             
             epoch_time = time.time() - start_time
             
-            # 打印进度
+            # Print progress
             print(f"Epoch {epoch+1:3d}/{num_epochs} | "
                   f"Train Loss: {train_losses['total']:.4f} | "
                   f"Val Loss: {val_losses['total']:.4f} | "
@@ -251,39 +251,39 @@ class Trainer:
                   f"F1: {metrics.anomaly_f1:.4f} | "
                   f"Time: {epoch_time:.1f}s")
             
-            # 早停检查
+            # Early-stop check
             if val_losses['total'] < best_val_loss:
                 best_val_loss = val_losses['total']
                 patience_counter = 0
                 best_model_state = copy.deepcopy(self.model.state_dict())
-                print(f"  ✓ 新最佳模型！")
+                print(f"  ✓ New best model!")
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"\n早停触发！已 {patience} epochs 无改善。")
+                    print(f"\nEarly stopping triggered: no improvement for {patience} epochs.")
                     break
         
-        # 恢复最佳模型
+        # Restore best model
         if best_model_state is not None:
             self.model.load_state_dict(best_model_state)
-            print(f"\n已恢复最佳模型 (val_loss={best_val_loss:.4f})")
+            print(f"\nRestored best model (val_loss={best_val_loss:.4f})")
         
         return self.history
     
     def save_model(self, path: str):
-        """保存模型"""
+        """Save model"""
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'config': self.config,
             'history': self.history
         }, path)
-        print(f"模型已保存到 {path}")
+        print(f"Model saved to {path}")
     
     def load_model(self, path: str):
-        """加载模型"""
+        """Load model"""
         checkpoint = torch.load(path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint['history']
-        print(f"模型已从 {path} 加载")
+        print(f"Model loaded from {path}")

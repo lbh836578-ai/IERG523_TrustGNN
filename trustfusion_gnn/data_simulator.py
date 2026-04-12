@@ -1,6 +1,6 @@
 """
-数据模拟器
-生成带有故障注入的模拟传感器数据
+Data simulator
+Generate synthetic sensor data with injected faults
 """
 import torch
 import numpy as np
@@ -14,20 +14,20 @@ from config import SystemConfig, SensorMeta, SensorType
 
 
 class FaultType(Enum):
-    """故障类型"""
+    """Fault types"""
     NONE = 0
-    STUCK_AT = 1          # 卡死在某个值
-    DRIFT = 2             # 漂移
-    NOISE = 3             # 噪声增大
-    SPIKE = 4             # 尖峰
-    BIAS = 5              # 偏置
-    MISSING = 6           # 数据丢失（NaN）
-    RANDOM = 7            # 随机值
+    STUCK_AT = 1          # Stuck at a fixed value
+    DRIFT = 2             # Drift
+    NOISE = 3             # Increased noise
+    SPIKE = 4             # Spike
+    BIAS = 5              # Bias
+    MISSING = 6           # Missing data (NaN)
+    RANDOM = 7            # Random values
 
 
 @dataclass
 class FaultInfo:
-    """故障信息"""
+    """Fault metadata"""
     sensor_id: str
     sensor_idx: int
     fault_type: FaultType
@@ -38,7 +38,7 @@ class FaultInfo:
 
 @dataclass
 class SensorDataTensor:
-    """传感器数据张量"""
+    """Sensor data tensor"""
     X: torch.Tensor           # (N, T, F)
     timestamps: np.ndarray    # (T,)
     sensor_ids: List[str]
@@ -46,16 +46,16 @@ class SensorDataTensor:
 
 @dataclass
 class GroundTruth:
-    """训练标签"""
-    clean_data: torch.Tensor           # (N, T, F) 干净数据
-    fusion_target: torch.Tensor        # (T, output_F) 融合目标
-    fault_mask: torch.Tensor           # (N, T) 故障掩码 1=故障
-    fault_types: torch.Tensor          # (N, T) 故障类型编码
-    credibility_target: torch.Tensor   # (N, T) 可信度目标 1=可信
+    """Training labels"""
+    clean_data: torch.Tensor           # (N, T, F) clean data
+    fusion_target: torch.Tensor        # (T, output_F) fusion target
+    fault_mask: torch.Tensor           # (N, T) fault mask, 1=fault
+    fault_types: torch.Tensor          # (N, T) fault type encoding
+    credibility_target: torch.Tensor   # (N, T) trust target, 1=trustworthy
 
 
 class AgriculturalDataSimulator:
-    """农业数据模拟器"""
+    """Agricultural data simulator"""
     
     def __init__(self, config: SystemConfig, seed: int = 42):
         self.config = config
@@ -72,49 +72,49 @@ class AgriculturalDataSimulator:
         num_samples: int = 1,
         window_size: int = None
     ) -> List[SensorDataTensor]:
-        """生成干净的传感器数据"""
+        """Generate clean sensor data"""
         if window_size is None:
             window_size = self.config.window_size
             
         samples = []
         
         for _ in range(num_samples):
-            # 生成基础环境参数（真实值）
-            base_temp = np.random.uniform(18, 30)          # 基础温度
-            base_humidity = np.random.uniform(40, 75)      # 基础湿度
-            base_soil = np.random.uniform(25, 55)          # 基础土壤湿度
-            base_light = np.random.uniform(5000, 40000)    # 基础光照
+            # Generate base environment values (ground truth)
+            base_temp = np.random.uniform(18, 30)          # base temperature
+            base_humidity = np.random.uniform(40, 75)      # base humidity
+            base_soil = np.random.uniform(25, 55)          # base soil moisture
+            base_light = np.random.uniform(5000, 40000)    # base illumination
             
-            # 时间序列
+            # Time axis
             t = np.arange(window_size)
             
-            # 生成时间变化模式（日变化）
+            # Generate temporal variation (daily cycle)
             hour_cycle = 2 * np.pi * t / window_size
             
-            # 温度：日变化 + 噪声
+            # Temperature: daily variation + noise
             temp_variation = 3 * np.sin(hour_cycle) + 0.5 * np.random.randn(window_size)
             
-            # 湿度：与温度负相关
+            # Humidity: negatively correlated with temperature
             humidity_variation = -2 * np.sin(hour_cycle) + 1.0 * np.random.randn(window_size)
             
-            # 土壤湿度：缓慢变化
+            # Soil moisture: slow variation
             soil_variation = 0.5 * np.cumsum(np.random.randn(window_size) * 0.1)
             soil_variation = soil_variation - soil_variation.mean()
             
-            # 光照：日变化明显
+            # Illumination: strong daily pattern
             light_variation = 15000 * np.maximum(0, np.sin(hour_cycle)) + 500 * np.random.randn(window_size)
             
-            # 为每个传感器生成数据
+            # Generate data per sensor
             data = np.zeros((self.num_sensors, window_size, 1))
             
             for i, sensor_id in enumerate(self.sensor_ids):
                 sensor = self.config.sensors[sensor_id]
                 
                 if sensor.sensor_type == SensorType.TEMPERATURE:
-                    # 温度传感器：基础值 + 时变 + 传感器特定噪声
+                    # Temperature sensor: base + temporal variation + sensor-specific noise
                     base = base_temp + temp_variation
                     noise = np.random.randn(window_size) * sensor.noise_std
-                    # 添加空间差异
+                    # Add spatial variation
                     spatial_offset = np.random.uniform(-1, 1)
                     data[i, :, 0] = base + noise + spatial_offset
                     
@@ -135,7 +135,7 @@ class AgriculturalDataSimulator:
                     noise = np.random.randn(window_size) * sensor.noise_std
                     data[i, :, 0] = np.clip(base + noise, 0, 65535)
             
-            # 创建时间戳
+            # Create timestamps
             timestamps = np.arange(window_size)
             
             samples.append(SensorDataTensor(
@@ -153,17 +153,17 @@ class AgriculturalDataSimulator:
         fault_duration_ratio: float = 0.5
     ) -> Tuple[SensorDataTensor, List[FaultInfo], torch.Tensor]:
         """
-        注入故障
+        Inject faults
         
         Args:
-            data: 干净数据
-            fault_ratio: 故障传感器比例
-            fault_duration_ratio: 故障持续时间比例
+            data: clean data
+            fault_ratio: ratio of faulty sensors
+            fault_duration_ratio: ratio of fault duration
             
         Returns:
-            faulty_data: 注入故障后的数据
-            fault_infos: 故障信息列表
-            fault_mask: 故障掩码 (N, T)
+            faulty_data: data after fault injection
+            fault_infos: fault metadata list
+            fault_mask: fault mask (N, T)
         """
         X = data.X.clone()
         N, T, F = X.shape
@@ -171,11 +171,11 @@ class AgriculturalDataSimulator:
         fault_mask = torch.zeros(N, T)
         fault_infos = []
         
-        # 随机选择故障传感器
+        # Randomly choose faulty sensors
         num_faulty = max(1, int(N * fault_ratio))
         faulty_indices = random.sample(range(N), num_faulty)
         
-        # 可用的故障类型
+        # Available fault types
         fault_types = [
             FaultType.STUCK_AT,
             FaultType.DRIFT,
@@ -189,39 +189,39 @@ class AgriculturalDataSimulator:
             sensor_id = self.sensor_ids[idx]
             sensor = self.config.sensors[sensor_id]
             
-            # 随机选择故障类型
+            # Randomly choose fault type
             fault_type = random.choice(fault_types)
             
-            # 随机选择故障时间范围
+            # Randomly choose fault time range
             fault_duration = int(T * fault_duration_ratio * random.uniform(0.5, 1.0))
             start_time = random.randint(0, T - fault_duration)
             end_time = start_time + fault_duration
             
-            # 注入故障
+            # Inject fault
             params = {}
             
             if fault_type == FaultType.STUCK_AT:
-                # 卡死在某个值
+                # Stuck-at fault
                 stuck_value = X[idx, start_time, 0].item()
                 X[idx, start_time:end_time, 0] = stuck_value
                 params['stuck_value'] = stuck_value
                 
             elif fault_type == FaultType.DRIFT:
-                # 漂移
+                # Drift fault
                 drift_rate = random.uniform(0.1, 0.5) * random.choice([-1, 1])
                 drift = torch.arange(end_time - start_time).float() * drift_rate
                 X[idx, start_time:end_time, 0] += drift
                 params['drift_rate'] = drift_rate
                 
             elif fault_type == FaultType.NOISE:
-                # 噪声增大
+                # Increased noise fault
                 noise_multiplier = random.uniform(3, 10)
                 extra_noise = torch.randn(end_time - start_time) * sensor.noise_std * noise_multiplier
                 X[idx, start_time:end_time, 0] += extra_noise
                 params['noise_multiplier'] = noise_multiplier
                 
             elif fault_type == FaultType.SPIKE:
-                # 尖峰
+                # Spike fault
                 num_spikes = random.randint(3, 10)
                 spike_times = random.sample(range(start_time, end_time), min(num_spikes, end_time - start_time))
                 for st in spike_times:
@@ -230,20 +230,20 @@ class AgriculturalDataSimulator:
                 params['num_spikes'] = num_spikes
                 
             elif fault_type == FaultType.BIAS:
-                # 偏置
+                # Bias fault
                 bias = random.uniform(5, 15) * random.choice([-1, 1])
                 X[idx, start_time:end_time, 0] += bias
                 params['bias'] = bias
                 
             elif fault_type == FaultType.RANDOM:
-                # 随机值
+                # Random-value fault
                 random_values = torch.rand(end_time - start_time) * (sensor.max_value - sensor.min_value) + sensor.min_value
                 X[idx, start_time:end_time, 0] = random_values
                 
-            # 记录故障掩码
+            # Record fault mask
             fault_mask[idx, start_time:end_time] = 1.0
             
-            # 记录故障信息
+            # Record fault metadata
             fault_infos.append(FaultInfo(
                 sensor_id=sensor_id,
                 sensor_idx=idx,
@@ -266,20 +266,20 @@ class AgriculturalDataSimulator:
         clean_data: SensorDataTensor,
         fault_mask: torch.Tensor
     ) -> GroundTruth:
-        """计算真实标签"""
+        """Compute ground-truth labels"""
         N, T, F = clean_data.X.shape
         
-        # 融合目标：按传感器类型分组平均
-        fusion_target = torch.zeros(T, 4)  # 4个输出通道
+        # Fusion target: average by sensor type group
+        fusion_target = torch.zeros(T, 4)  # 4 output channels
         
         for i, sensor_id in enumerate(self.sensor_ids):
             sensor = self.config.sensors[sensor_id]
             group = sensor.fusion_group
             
-            # 加入到对应通道
+            # Add to corresponding channel
             fusion_target[:, group] += clean_data.X[i, :, 0]
         
-        # 归一化（按每个类型的传感器数量）
+        # Normalize by sensor count per type
         group_counts = [0, 0, 0, 0]
         for sensor_id in self.sensor_ids:
             sensor = self.config.sensors[sensor_id]
@@ -289,7 +289,7 @@ class AgriculturalDataSimulator:
             if group_counts[g] > 0:
                 fusion_target[:, g] /= group_counts[g]
         
-        # 可信度目标：无故障=1，有故障=0
+        # Trust target: no fault=1, fault=0
         credibility_target = 1.0 - fault_mask
         
         return GroundTruth(
@@ -307,14 +307,14 @@ class AgriculturalDataSimulator:
         fault_ratio: float = 0.3
     ) -> Tuple[List[SensorDataTensor], List[GroundTruth], List[List[FaultInfo]]]:
         """
-        生成完整数据集
+        Generate full dataset
         
         Returns:
-            data_list: 传感器数据列表（可能有故障）
-            gt_list: 真实标签列表
-            fault_list: 故障信息列表
+            data_list: sensor data list (may include faults)
+            gt_list: ground-truth label list
+            fault_list: fault metadata list
         """
-        # 生成干净数据
+        # Generate clean data
         clean_samples = self.generate_clean_data(num_samples)
         
         data_list = []
@@ -322,7 +322,7 @@ class AgriculturalDataSimulator:
         fault_list = []
         
         for clean_data in clean_samples:
-            if inject_faults and random.random() < 0.8:  # 80%的样本有故障
+            if inject_faults and random.random() < 0.8:  # 80% samples include faults
                 faulty_data, faults, fault_mask = self.inject_faults(
                     clean_data, fault_ratio=fault_ratio
                 )
@@ -346,7 +346,7 @@ class AgriculturalDataSimulator:
         batch_size: int = 32,
         shuffle: bool = True
     ) -> DataLoader:
-        """创建 DataLoader"""
+        """Create DataLoader"""
         dataset = SensorDataset(data_list, gt_list)
         return DataLoader(
             dataset, 
@@ -357,7 +357,7 @@ class AgriculturalDataSimulator:
     
     @staticmethod
     def collate_fn(batch):
-        """批处理函数"""
+        """Batch collation function"""
         X = torch.stack([item[0] for item in batch])
         fusion_target = torch.stack([item[1] for item in batch])
         fault_mask = torch.stack([item[2] for item in batch])
@@ -367,7 +367,7 @@ class AgriculturalDataSimulator:
 
 
 class SensorDataset(Dataset):
-    """传感器数据集"""
+    """Sensor dataset"""
     
     def __init__(
         self, 

@@ -1,6 +1,6 @@
 """
-TrustFusion-GNN 完整模型
-整合 Stage 1, 2, 3
+Full TrustFusion-GNN model
+Integrates Stage 1, 2, and 3
 """
 import torch
 import torch.nn as nn
@@ -14,10 +14,10 @@ from data_structures import SystemInput, SystemOutput
 
 class TrustFusionGNN(nn.Module):
     """
-    TrustFusion-GNN: 可信数据融合网络
+    TrustFusion-GNN: trustworthy data fusion network
     
-    输入: X = {X, A, M}
-    输出: Ŷ, τ, σ = f_θ(X)
+    Input: X = {X, A, M}
+    Output: Ŷ, τ, σ = f_θ(X)
     """
     
     def __init__(
@@ -39,17 +39,17 @@ class TrustFusionGNN(nn.Module):
         self.num_sensors = num_sensors
         self.output_dim = output_dim
         
-        # 默认传感器到输出的映射
+        # Default sensor-to-output mapping
         if sensor_to_output is None:
-            # temp_1, temp_2 → 温度(0)
-            # humidity_1, humidity_2 → 湿度(1)
-            # soil_1, soil_2 → 土壤(2)
-            # light → 光照(3)
+            # temp_1, temp_2 -> temperature (0)
+            # humidity_1, humidity_2 -> humidity (1)
+            # soil_1, soil_2 -> soil moisture (2)
+            # light -> illumination (3)
             sensor_to_output = {
                 0: 0, 1: 1, 2: 0, 3: 1, 4: 2, 5: 2, 6: 3
             }
         
-        # Stage 1: 特征提取与初始可信度
+        # Stage 1: feature extraction and initial trust estimation
         self.stage1 = Stage1Module(
             input_dim=input_dim,
             hidden_dim=hidden_dim,
@@ -58,7 +58,7 @@ class TrustFusionGNN(nn.Module):
             dropout=dropout
         )
         
-        # Stage 2: 可信度感知GNN
+        # Stage 2: trust-aware GNN
         self.stage2 = Stage2Module(
             hidden_dim=hidden_dim,
             num_layers=gnn_layers,
@@ -67,7 +67,7 @@ class TrustFusionGNN(nn.Module):
             use_learnable_graph=use_learnable_graph
         )
         
-        # Stage 3: 融合输出
+        # Stage 3: fusion output
         self.stage3 = Stage3Module(
             hidden_dim=hidden_dim,
             num_sensors=num_sensors,
@@ -84,27 +84,27 @@ class TrustFusionGNN(nn.Module):
     ) -> SystemOutput:
         """
         Args:
-            X: (batch, N, T, F) 多传感器观测序列
-            A: (N, N) 传感器空间关系图
-            M: (N, D) 传感器元信息（可选）
+            X: (batch, N, T, F) multi-sensor observation sequence
+            A: (N, N) sensor spatial relation graph
+            M: (N, D) sensor metadata (optional)
             
         Returns:
-            SystemOutput 包含所有输出
+            SystemOutput with all outputs
         """
-        # Stage 1: 特征提取
+        # Stage 1: feature extraction
         h_temp, s_feat, tau_init = self.stage1(X)
         
-        # Stage 2: 图神经网络
+        # Stage 2: graph neural network
         h_gnn, tau_temporal, learned_adj, attention = self.stage2(
             h_temp, tau_init, A
         )
         
-        # Stage 3: 融合输出
+        # Stage 3: fusion output
         stage3_output = self.stage3(
             h_gnn, tau_temporal, X, learned_adj
         )
         
-        # 构建输出
+        # Build output structure
         return SystemOutput(
             Y_hat=stage3_output['y_hat'],
             tau=stage3_output['tau'],
@@ -119,7 +119,7 @@ class TrustFusionGNN(nn.Module):
         )
     
     def get_model_summary(self) -> Dict:
-        """获取模型摘要"""
+        """Get model summary"""
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         

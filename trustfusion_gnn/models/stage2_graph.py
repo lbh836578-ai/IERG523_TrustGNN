@@ -1,6 +1,6 @@
 """
-Stage 2: 可信度感知的图神经网络信息融合
-对应你架构图中的：
+Stage 2: Trust-aware GNN information fusion
+Corresponds to:
 - Credibility-Aware Graph Attention: α_ij = softmax(τ_i · τ_j · attention(h_i, h_j))
 - Multi-hop Message Passing: h_i^{(l+1)} = Update(h_i^{(l)}, Σ α_ij · h_j^{(l)})
 """
@@ -13,9 +13,9 @@ import math
 
 class CredibilityAwareGraphAttention(nn.Module):
     """
-    可信度感知的图注意力
+    Trust-aware graph attention
     α_ij = softmax(τ_i · τ_j · attention(h_i, h_j))
-    高可信度节点获得更高的注意力权重
+    Highly trusted nodes receive larger attention weights
     """
     
     def __init__(
@@ -30,12 +30,12 @@ class CredibilityAwareGraphAttention(nn.Module):
         self.head_dim = hidden_dim // num_heads
         self.scale = math.sqrt(self.head_dim)
         
-        # Query, Key, Value 投影
+        # Query, Key, Value projections
         self.W_q = nn.Linear(hidden_dim, hidden_dim)
         self.W_k = nn.Linear(hidden_dim, hidden_dim)
         self.W_v = nn.Linear(hidden_dim, hidden_dim)
         
-        # 可信度调制
+        # Trust modulation
         self.credibility_proj = nn.Linear(1, num_heads)
         
         self.dropout = nn.Dropout(dropout)
@@ -49,39 +49,39 @@ class CredibilityAwareGraphAttention(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
-            h: (batch, N, H) 节点特征
-            tau: (batch, N) 可信度分数
-            adj_mask: (N, N) 邻接矩阵掩码
+            h: (batch, N, H) node features
+            tau: (batch, N) trust scores
+            adj_mask: (N, N) adjacency mask
             
         Returns:
-            h_out: (batch, N, H) 更新后的节点特征
-            attention: (batch, num_heads, N, N) 注意力权重
+            h_out: (batch, N, H) updated node features
+            attention: (batch, num_heads, N, N) attention weights
         """
         B, N, H = h.shape
         
-        # 计算 Q, K, V
+        # Compute Q, K, V
         Q = self.W_q(h).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         K = self.W_k(h).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.W_v(h).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         # (B, num_heads, N, head_dim)
         
-        # 计算注意力分数
+        # Compute attention scores
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale
         # (B, num_heads, N, N)
         
-        # 可信度调制: τ_i · τ_j
+        # Trust modulation: τ_i · τ_j
         tau_i = tau.unsqueeze(-1)  # (B, N, 1)
         tau_j = tau.unsqueeze(-2)  # (B, 1, N)
         credibility_weight = tau_i * tau_j  # (B, N, N)
         
-        # 投影到多头
+        # Project to multi-head space
         cred_bias = self.credibility_proj(credibility_weight.unsqueeze(-1))  # (B, N, N, num_heads)
         cred_bias = cred_bias.permute(0, 3, 1, 2)  # (B, num_heads, N, N)
         
-        # 合并注意力分数
+        # Combine attention scores
         attn_scores = attn_scores + cred_bias
         
-        # 应用邻接掩码
+        # Apply adjacency mask
         adj_mask_expanded = adj_mask.unsqueeze(0).unsqueeze(0)  # (1, 1, N, N)
         attn_scores = attn_scores.masked_fill(adj_mask_expanded == 0, float('-inf'))
         
@@ -89,19 +89,19 @@ class CredibilityAwareGraphAttention(nn.Module):
         attention = F.softmax(attn_scores, dim=-1)
         attention = self.dropout(attention)
         
-        # 聚合
+        # Aggregate
         h_out = torch.matmul(attention, V)  # (B, num_heads, N, head_dim)
         h_out = h_out.transpose(1, 2).contiguous().view(B, N, H)
         h_out = self.output_proj(h_out)
         
-        return h_out, attention.mean(dim=1)  # 返回平均注意力
+        return h_out, attention.mean(dim=1)  # return mean attention
 
 
 class MultiHopMessagePassing(nn.Module):
     """
-    多跳消息传递
+    Multi-hop message passing
     h_i^{(l+1)} = Update(h_i^{(l)}, Σ α_ij · h_j^{(l)})
-    通过多跳传播让可信信息覆盖异常节点
+    Multi-hop propagation helps trusted information cover anomalous nodes
     """
     
     def __init__(
@@ -112,12 +112,12 @@ class MultiHopMessagePassing(nn.Module):
     ):
         super().__init__()
         
-        # 可信度感知注意力
+        # Trust-aware attention
         self.attention = CredibilityAwareGraphAttention(
             hidden_dim, num_heads, dropout
         )
         
-        # 更新函数
+        # Update function
         self.update_mlp = nn.Sequential(
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.GELU(),
@@ -151,14 +151,14 @@ class MultiHopMessagePassing(nn.Module):
             h_out: (batch, N, H)
             attention: (batch, N, N)
         """
-        # 注意力聚合
+        # Attention aggregation
         h_attn, attention = self.attention(h, tau, adj_mask)
         
-        # 更新: 结合自身和邻居信息
+        # Update: combine self and neighbor information
         h_combined = torch.cat([h, h_attn], dim=-1)
         h_update = self.update_mlp(h_combined)
         
-        # 残差 + LayerNorm
+        # Residual + LayerNorm
         h = self.norm1(h + h_update)
         
         # FFN
@@ -169,8 +169,8 @@ class MultiHopMessagePassing(nn.Module):
 
 class Stage2Module(nn.Module):
     """
-    Stage 2 完整模块
-    多层可信度感知图神经网络
+    Full Stage 2 module
+    Multi-layer trust-aware graph neural network
     """
     
     def __init__(
@@ -186,13 +186,13 @@ class Stage2Module(nn.Module):
         self.num_layers = num_layers
         self.use_learnable_graph = use_learnable_graph
         
-        # 多层消息传递
+        # Multi-layer message passing
         self.layers = nn.ModuleList([
             MultiHopMessagePassing(hidden_dim, num_heads, dropout)
             for _ in range(num_layers)
         ])
         
-        # 可学习图（如果启用）
+        # Learnable graph (if enabled)
         if use_learnable_graph:
             self.graph_learner = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
@@ -200,7 +200,7 @@ class Stage2Module(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim)
             )
         
-        # 可信度更新
+        # Trust-score updater
         self.tau_updater = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.GELU(),
@@ -216,56 +216,56 @@ class Stage2Module(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
-            h: (batch, N, T, H) 时序节点特征
-            tau: (batch, N) 初始可信度
-            adj: (N, N) 基础邻接矩阵
+            h: (batch, N, T, H) temporal node features
+            tau: (batch, N) initial trust score
+            adj: (N, N) base adjacency matrix
             
         Returns:
-            h_out: (batch, N, T, H) 更新后的节点特征
-            tau_refined: (batch, N, T) 精炼后的时变可信度
-            learned_adj: (N, N) 学习到的邻接矩阵
-            attention_weights: (batch, N, N) 最终注意力权重
+            h_out: (batch, N, T, H) updated node features
+            tau_refined: (batch, N, T) refined time-varying trust score
+            learned_adj: (N, N) learned adjacency matrix
+            attention_weights: (batch, N, N) final attention weights
         """
         B, N, T, H = h.shape
         
-        # 学习图结构
+        # Learn graph structure
         learned_adj = adj
         if self.use_learnable_graph:
-            # 使用时间平均的特征学习图
+            # Learn graph from time-averaged features
             h_mean = h.mean(dim=2)  # (B, N, H)
             h_proj = self.graph_learner(h_mean)  # (B, N, H)
             
-            # 计算相似度
+            # Compute similarity
             h_norm = F.normalize(h_proj, dim=-1)
             sim = torch.bmm(h_norm, h_norm.transpose(1, 2))  # (B, N, N)
-            sim = sim.mean(dim=0)  # (N, N) batch平均
+            sim = sim.mean(dim=0)  # (N, N) batch average
             
-            # 与基础图混合
+            # Mix with base graph
             learned_adj = 0.7 * adj + 0.3 * torch.softmax(sim, dim=-1)
         
-        # 存储时变可信度
+        # Store time-varying trust scores
         h_out_list = []
         tau_list = []
         attention_weights = None
         
-        # 对每个时间步处理
+        # Process each time step
         for t in range(T):
             h_t = h[:, :, t, :]  # (B, N, H)
             
-            # 多层消息传递
+            # Multi-layer message passing
             tau_t = tau
             for layer in self.layers:
                 h_t, attention_weights = layer(h_t, tau_t, learned_adj)
-                # 更新可信度
+                # Update trust scores
                 tau_t = self.tau_updater(h_t).squeeze(-1)  # (B, N)
             
             h_out_list.append(h_t)
             tau_list.append(tau_t)
         
-        # 堆叠时序输出特征
+        # Stack temporal output features
         h_out = torch.stack(h_out_list, dim=2)  # (B, N, T, H)
 
-        # 堆叠时变可信度
+        # Stack time-varying trust scores
         tau_refined = torch.stack(tau_list, dim=2)  # (B, N, T)
         
         return h_out, tau_refined, learned_adj, attention_weights

@@ -1,6 +1,6 @@
 """
-评估指标
-对应你的表格：融合精度、异常检测、鲁棒性
+Evaluation metrics
+Corresponding categories: fusion accuracy, anomaly detection, robustness
 """
 import torch
 import numpy as np
@@ -10,38 +10,38 @@ from dataclasses import dataclass
 
 @dataclass
 class MetricsResult:
-    """评估指标结果"""
-    # 融合精度
+    """Evaluation metric results"""
+    # Fusion accuracy
     mae: float
     rmse: float
     mape: float
     
-    # 对比基线
+    # Baseline comparison
     improvement_vs_mean: float
     improvement_vs_median: float
     
-    # 异常检测
+    # Anomaly detection
     anomaly_auc: float
     anomaly_precision: float
     anomaly_recall: float
     anomaly_f1: float
     
-    # 可信度评估
+    # Trust-score evaluation
     credibility_mae: float
     
-    # 系统指标
+    # System metrics
     system_confidence_mean: float
 
 
 class MetricsCalculator:
-    """评估指标计算器"""
+    """Evaluation metrics calculator"""
     
     def __init__(self, anomaly_threshold: float = 0.5):
         self.anomaly_threshold = anomaly_threshold
         self.reset()
         
     def reset(self):
-        """重置累积器"""
+        """Reset accumulators"""
         self.fusion_preds = []
         self.fusion_targets = []
         self.anomaly_preds = []
@@ -62,7 +62,7 @@ class MetricsCalculator:
         system_confidence: torch.Tensor,
         raw_input: torch.Tensor = None
     ):
-        """累积一个batch的结果"""
+        """Accumulate one batch of results"""
         self.fusion_preds.append(y_hat.detach().cpu())
         self.fusion_targets.append(y_true.detach().cpu())
         self.anomaly_preds.append(anomaly_scores.detach().cpu())
@@ -74,8 +74,8 @@ class MetricsCalculator:
             self.raw_inputs.append(raw_input.detach().cpu())
     
     def compute(self) -> MetricsResult:
-        """计算所有指标"""
-        # 合并数据
+        """Compute all metrics"""
+        # Concatenate data
         y_hat = torch.cat(self.fusion_preds, dim=0)
         y_true = torch.cat(self.fusion_targets, dim=0)
         anom_pred = torch.cat(self.anomaly_preds, dim=0)
@@ -84,16 +84,16 @@ class MetricsCalculator:
         cred_true = torch.cat(self.credibility_targets, dim=0)
         sys_conf = torch.cat(self.system_confidences, dim=0)
         
-        # ========== 融合精度指标 ==========
+        # ========== Fusion Accuracy Metrics ==========
         mae = self._mae(y_hat, y_true)
         rmse = self._rmse(y_hat, y_true)
         mape = self._mape(y_hat, y_true)
         
-        # ========== 对比基线 ==========
+        # ========== Baseline Comparison ==========
         if self.raw_inputs:
             raw = torch.cat(self.raw_inputs, dim=0)
-            baseline_mean = raw.mean(dim=1)  # 简单平均
-            baseline_median = raw.median(dim=1)[0]  # 中位数
+            baseline_mean = raw.mean(dim=1)  # simple mean
+            baseline_median = raw.median(dim=1)[0]  # median
             
             mae_mean = self._mae(baseline_mean, y_true)
             mae_median = self._mae(baseline_median, y_true)
@@ -104,7 +104,7 @@ class MetricsCalculator:
             improvement_vs_mean = 0.0
             improvement_vs_median = 0.0
         
-        # ========== 异常检测指标 ==========
+        # ========== Anomaly Detection Metrics ==========
         anom_pred_np = anom_pred.numpy().flatten()
         anom_true_np = anom_true.numpy().flatten()
         valid_mask = np.isfinite(anom_pred_np) & np.isfinite(anom_true_np)
@@ -132,10 +132,10 @@ class MetricsCalculator:
             anom_pred_binary, anom_true > 0.5
         )
         
-        # ========== 可信度指标 ==========
+        # ========== Trust-Score Metrics ==========
         credibility_mae = self._mae(cred_pred, cred_true)
         
-        # ========== 系统指标 ==========
+        # ========== System Metrics ==========
         system_confidence_mean = sys_conf.mean().item()
         
         return MetricsResult(
@@ -184,7 +184,7 @@ class MetricsCalculator:
         return precision, recall, f1
 
     def _binary_auc(self, y_true: np.ndarray, y_score: np.ndarray) -> float:
-        """纯 numpy 实现二分类 ROC-AUC（含 ties 平均秩处理）。"""
+        """Pure NumPy implementation of binary ROC-AUC (with tie-aware average ranks)."""
         y_true = y_true.astype(np.int32)
         y_score = y_score.astype(np.float64)
 
@@ -219,13 +219,13 @@ def compute_robustness_metrics(
     anomaly_ratios: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
 ) -> Dict[float, float]:
     """
-    计算不同异常比例下的鲁棒性指标
+    Compute robustness metrics under different anomaly ratios
     """
-    # 这需要能够动态调整测试数据的异常比例
-    # 实际实现中需要配合 DataSimulator
+    # This requires dynamically adjusting anomaly ratio in test data
+    # In practice, integrate with DataSimulator
     robustness = {}
     for ratio in anomaly_ratios:
-        # 生成指定异常比例的测试数据
+        # Generate test data with the specified anomaly ratio
         # mae = evaluate_with_ratio(model, test_loader, ratio)
         # robustness[ratio] = mae
         pass

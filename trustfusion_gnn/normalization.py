@@ -1,6 +1,6 @@
 """
-数据归一化工具
-统一输入/输出量纲，避免光照量级压制其他通道。
+Data normalization utilities
+Unify input/output scales to prevent illumination magnitude from dominating other channels.
 """
 import torch
 
@@ -8,7 +8,7 @@ from config import SystemConfig
 
 
 class DataNormalizer:
-    """基于配置的传感器范围做 min-max 归一化。"""
+    """Min-max normalization based on configured sensor ranges."""
 
     def __init__(self, config: SystemConfig):
         self.sensor_ids = list(config.sensors.keys())
@@ -29,13 +29,13 @@ class DataNormalizer:
             output_min.append(min(s.min_value for s in group_sensors))
             output_max.append(max(s.max_value for s in group_sensors))
 
-        # 输入: (B, N, T, F=1)
+        # Input: (B, N, T, F=1)
         self.input_min = torch.tensor(input_min, dtype=torch.float32).view(1, -1, 1, 1)
         self.input_scale = (
             torch.tensor(input_max, dtype=torch.float32).view(1, -1, 1, 1) - self.input_min
         ).clamp(min=1e-6)
 
-        # 输出: (B, T, output_F)
+        # Output: (B, T, output_F)
         self.output_min = torch.tensor(output_min, dtype=torch.float32).view(1, 1, -1)
         self.output_scale = (
             torch.tensor(output_max, dtype=torch.float32).view(1, 1, -1) - self.output_min
