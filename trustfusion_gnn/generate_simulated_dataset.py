@@ -162,9 +162,9 @@ def generate_split(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate synthetic datasets for TrustFusion-GNN.")
     parser.add_argument("--output-dir", default="simulated_data", help="Directory for exported datasets.")
-    parser.add_argument("--train-samples", type=int, default=3000, help="Number of training samples.")
-    parser.add_argument("--val-samples", type=int, default=600, help="Number of validation samples.")
-    parser.add_argument("--test-samples", type=int, default=600, help="Number of test samples.")
+    parser.add_argument("--train-samples", type=int, default=2000, help="Number of training samples.")
+    parser.add_argument("--val-samples", type=int, default=300, help="Number of validation samples.")
+    parser.add_argument("--test-samples", type=int, default=300, help="Number of test samples.")
     parser.add_argument("--fault-ratio", type=float, default=0.35, help="Fault ratio used during generation.")
     parser.add_argument("--seed", type=int, default=42, help="Base random seed.")
     return parser.parse_args()
